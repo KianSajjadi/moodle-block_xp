@@ -37,6 +37,9 @@ use block_xp\local\config\course_world_config;
 use block_xp\local\controller\promo_controller;
 use block_xp\local\controller\ladder_controller;
 use block_xp\privacy\provider;
+use core_privacy\local\request\userlist;
+use \core_privacy\local\request\approved_userlist;
+
 
 /**
  * Privacy provider testcase.
@@ -336,4 +339,86 @@ class block_xp_privacy_provider_testcase extends block_xp_base_testcase {
         sort($expectedids);
         $this->assertEquals($expectedids, $contextids);
     }
+
+    public function test_get_users_in_context() {
+        $dg = $this->getDataGenerator();
+        $course1 = $dg->create_course();
+        $course2 = $dg->create_course();
+        $coursecontext1 = context_course::instance($course1->id);
+        $coursecontext2 = context_course::instance($course2->id);
+        $systemcontext = context_system::instance();
+        $user1 = $dg->create_user();
+        $user2 = $dg->create_user();
+        $user3 = $dg->create_user();
+        $component = 'block_xp'; 
+
+        $config = di::get('config');
+        $config->set('context', CONTEXT_SYSTEM);
+
+        $world = $this->get_world(SITEID);
+        $strategy = $world->get_collection_strategy();
+        $e = \block_xp\event\something_happened::mock(array('crud' => 'c', 'userid' => $user1->id, 'courseid' => $course1->id));
+        $strategy->collect_event($e);
+        $userlist = new userlist($systemcontext, $component);
+        provider::get_users_in_context($userlist);
+        $this->assertCount(1, $userlist);
+        $this->assertEquals([$user1->id], $userlist->get_userids());
+
+        $this->reset_container();
+        $config = di::get('config');
+        $config->set('context', CONTEXT_COURSE);
+
+        $world = $this->get_world($course1->id);
+        $strategy = $world->get_collection_strategy();
+        $e = \block_xp\event\something_happened::mock(array('crud' => 'c', 'userid' => $user1->id, 'courseid' => $course1->id));
+        $strategy->collect_event($e);
+        $e = \block_xp\event\something_happened::mock(array('crud' => 'c', 'userid' => $user2->id, 'courseid' => $course1->id));
+        $strategy->collect_event($e);
+
+        $userlist1 = new userlist($coursecontext1, $component);
+        provider::get_users_in_context($userlist1);
+        $this->assertCount(2, $userlist1);
+        $this->assertEquals([$user1->id, $user2->id], $userlist1->get_userids());
+
+        $world = $this->get_world($course2->id);
+        $strategy = $world->get_collection_strategy();
+        $e = \block_xp\event\something_happened::mock(array('crud' => 'c', 'userid' => $user3->id, 'courseid' => $course2->id));
+        $strategy->collect_event($e);
+
+        $userlist2 = new userlist($coursecontext2, $component);
+        provider::get_users_in_context($userlist2);
+        $this->assertCount(1, $userlist2);
+        $this->assertEquals([$user3->id], $userlist2->get_userids());
+
+    }
+
+    public function test_delete_data_for_users(){
+        $dg = $this->getDataGenerator();
+        $course1 = $dg->create_course();
+        $coursecontext1 = context_course::instance($course1->id);
+        $user1 = $dg->create_user();
+        $user2 = $dg->create_user();
+        $component = 'block_xp';
+        
+        $config = di::get('config');
+        $config->set('context', CONTEXT_COURSE);
+
+        $world = $this->get_world($course1->id);
+        $strategy = $world->get_collection_strategy();
+        $e = \block_xp\event\something_happened::mock(array('crud' => 'c', 'userid' => $user1->id, 'courseid' => $course1->id));
+        $strategy->collect_event($e);
+        $e = \block_xp\event\something_happened::mock(array('crud' => 'c', 'userid' => $user2->id, 'courseid' => $course1->id));
+        $strategy->collect_event($e);
+
+        $userlist1 = new userlist($coursecontext1, $component);
+        provider::get_users_in_context($userlist1);
+        $this->assertCount(2, $userlist1);
+        $approvedlist1 = new approved_userlist($coursecontext1, $component, $userlist1->get_userids());
+        provider::delete_data_for_users($approvedlist1);
+        $userlist1 = new userlist($coursecontext1, $component);
+        provider::get_users_in_context($userlist1);
+        $this->assertCount(0, $userlist1);
+
+    }
 }
+

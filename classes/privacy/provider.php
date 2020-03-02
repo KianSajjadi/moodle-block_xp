@@ -33,7 +33,6 @@ use core_privacy\local\metadata\collection;
 use core_privacy\local\request\approved_contextlist;
 use core_privacy\local\request\transform;
 use core_privacy\local\request\writer;
-
 /**
  * Data provider class.
  *
@@ -49,6 +48,7 @@ use core_privacy\local\request\writer;
 class provider implements
     \core_privacy\local\metadata\provider,
     \core_privacy\local\request\plugin\provider,
+    \core_privacy\local\request\core_userlist_provider,
     \core_privacy\local\request\user_preference_provider {
 
     use \core_privacy\local\legacy_polyfill;
@@ -439,4 +439,52 @@ class provider implements
         }
         return null;
     }
+
+    public static function get_users_in_context(\core_privacy\local\request\userlist $userlist) {
+        $context = $userlist->get_context();
+
+        if(is_a($context, \context_system::class)) {
+            $userlist->add_from_sql(
+                'userid',
+                "SELECT xp.userid
+                    FROM {block_xp} xp
+                    WHERE xp.courseid = :siteid",
+                [
+                    'siteid' => SITEID
+                ]
+            );
+        }
+
+        if(is_a($context, \context_course::class)) {
+            $userlist->add_from_sql(
+                'userid',
+                "SELECT xp.userid
+                    FROM {block_xp} xp
+                    WHERE xp.courseid = :courseid",
+                [
+                    'courseid' => $context->instanceid
+                ]
+            );
+        }
+    }
+    
+
+    public static function delete_data_for_users(\core_privacy\local\request\approved_userlist $userlist) {
+        $db = \block_xp\di::get('db');
+        $context = $userlist->get_context();
+        $courseid = $context->instanceid;
+
+        if($courseid === null) {
+            return;
+        }
+
+        list($insql, $inparams) = $db->get_in_or_equal($userlist->get_userids(), SQL_PARAMS_NAMED);
+        $params = array_merge(['courseid' => $courseid], $inparams);
+        $sql = "courseid = :courseid AND userid {$insql}";
+
+
+        $db->delete_records_select('block_xp', $sql, $params);
+        $db->delete_records_select('block_xp_log', $sql, $params);
+    }
+
 }
